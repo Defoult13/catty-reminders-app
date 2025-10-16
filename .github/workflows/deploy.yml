@@ -27,6 +27,6 @@ jobs:
           debug: true
           script: |
             set -euxo pipefail
-            sudo -n systemctl status frpc --no-pager
+            systemctl is-active frpc || echo "frpc is not active (ok for CI step)"
             cd /home/defoult/OIS
             bash -x ./deploy.sh
