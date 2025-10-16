@@ -1,31 +1,32 @@
-name: CD Deploy
+name: CD
 
 on:
+  push:
+    tags:
+      - "v*"
   release:
     types: [published]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.7.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Deploy via SSH
+      - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: course.prafdin.ru
           username: defoult
           port: 2471
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          timeout: 60s
+          command_timeout: 10m
+          debug: true
           script: |
-            cd /home/defoult/OIS/catty-reminders-app
-            git fetch origin master
-            git reset --hard origin/master
-            ./.venv/bin/pip install -r requirements.txt
-            sudo -n systemctl restart catty-reminders
+            set -euxo pipefail
+            sudo -n systemctl status frpc --no-pager
+            cd /home/defoult/OIS
+            bash -x ./deploy.sh
