@@ -1,5 +1,4 @@
 name: CD Deploy
-
 on:
   release:
     types: [published]
@@ -7,45 +6,44 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Assert SSH_PRIVATE_KEY is set
         run: |
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "❌ SSH_PRIVATE_KEY is EMPTY or not visible to this job"; exit 1;
-          else
-            echo "✅ SSH_PRIVATE_KEY length: $(echo "${{ secrets.SSH_PRIVATE_KEY }}" | wc -c) bytes"
-            head -n 1 <<<'${{ secrets.SSH_PRIVATE_KEY }}'
+            echo "❌ SSH_PRIVATE_KEY is empty or not visible"; exit 1;
           fi
+          echo "✅ SSH_PRIVATE_KEY length: $(echo '${{ secrets.SSH_PRIVATE_KEY }}' | wc -c) bytes"
+          echo '${{ secrets.SSH_PRIVATE_KEY }}' | head -n1
 
-      - name: Install SSH key (ssh-agent)
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Write SSH key to file and test raw SSH
+        run: |
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+          ssh -i key.pem -p 2471 -o StrictHostKeyChecking=no defoult@course.prafdin.ru 'echo "SSH OK from GHA"'
+
+      - name: Deploy over SSH (appleboy with key_path)
+        uses: appleboy/ssh-action@v1.0.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: course.prafdin.ru
+          username: defoult
+          port: 2471
+          key_path: key.pem       
+          script_stop: true
+          timeout: 60s
+          command_timeout: 10m
+          debug: true
+          script: |
+            set -euxo pipefail
+            echo "🔐 Login to GHCR"
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u defoult13 --password-stdin
 
-      - name: Add target host to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p 2471 course.prafdin.ru >> ~/.ssh/known_hosts || true
-
-      - name: Deploy over raw SSH
-        run: |
-          ssh -p 2471 defoult@course.prafdin.ru 'bash -lc "
-            set -euo pipefail
-            echo \"🔐 Login GHCR\"
-            echo ${GHCR_TOKEN} | docker login ghcr.io -u ${GHCR_USER} --password-stdin
-
-            echo \"🧹 Stop old container if exists\"
+            echo "🧹 Stop old container if exists"
             docker rm -f catty-reminders || true
 
-            echo \"⬇️ Pull latest image\"
+            echo "⬇️ Pull latest image"
             docker pull ghcr.io/defoult13/catty-reminders-app:latest
 
-            echo \"🚀 Run new container\"
+            echo "🚀 Run new container"
             docker run -d --name catty-reminders -p 8181:8181 --restart=always ghcr.io/defoult13/catty-reminders-app:latest
 
-            echo \"✅ Done\"
-          "'
-        env:
-          GHCR_USER: defoult13
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+            echo "✅ Deployment complete"
