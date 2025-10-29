@@ -1,4 +1,4 @@
-name: CD
+name: CD Deploy
 
 on:
   release:
@@ -7,31 +7,26 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare SSH key file
-        run: |
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY_B64 }}" ]; then
-            echo "Secret SSH_PRIVATE_KEY_B64 is empty"; exit 1
-          fi
-          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
-          chmod 600 key.pem
-
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: course.prafdin.ru
           username: defoult
           port: 2471
-          key_path: key.pem          
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          timeout: 60s
-          command_timeout: 15m
-          debug: true
           script: |
             set -euxo pipefail
-            systemctl is-active frpc || echo "frpc is not active (ok for CD)"
-            cd /home/defoult/OIS
-            bash -x ./deploy.sh
+            echo "🔄 Pull latest image from GHCR"
+            docker login ghcr.io -u defoult13 -p ${{ secrets.GHCR_TOKEN }}
+            docker pull ghcr.io/defoult13/catty-reminders-app:latest || true
+
+            echo "🧹 Stop and remove old container if exists"
+            docker rm -f catty-reminders || true
+
+            echo "🚀 Run new container"
+            docker run -d --name catty-reminders -p 8181:8181 ghcr.io/defoult13/catty-reminders-app:latest
+
+            echo "✅ Deployment complete"
