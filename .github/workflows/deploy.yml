@@ -15,7 +15,7 @@ jobs:
           host: course.prafdin.ru
           username: defoult
           port: 2471
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
           script_stop: true
           script: |
             set -euxo pipefail
