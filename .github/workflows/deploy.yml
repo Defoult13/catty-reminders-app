@@ -6,19 +6,23 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Assert SSH_PRIVATE_KEY is set
-        run: |
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "❌ SSH_PRIVATE_KEY is empty or not visible"; exit 1;
-          fi
-          echo "✅ SSH_PRIVATE_KEY length: $(echo '${{ secrets.SSH_PRIVATE_KEY }}' | wc -c) bytes"
-          echo '${{ secrets.SSH_PRIVATE_KEY }}' | head -n1
 
-      - name: Write SSH key to file and test raw SSH
+    steps:
+      - name: Check B64 secret is present
         run: |
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY_B64 }}" ]; then
+            echo "❌ SSH_PRIVATE_KEY_B64 is empty or not visible to this job"; exit 1;
+          fi
+          echo "✅ SSH_PRIVATE_KEY_B64 length: $(echo '${{ secrets.SSH_PRIVATE_KEY_B64 }}' | wc -c) bytes"
+
+      - name: Decode key and test raw SSH
+        shell: bash
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
           chmod 600 key.pem
+
+          head -n1 key.pem
+
           ssh -i key.pem -p 2471 -o StrictHostKeyChecking=no defoult@course.prafdin.ru 'echo "SSH OK from GHA"'
 
       - name: Deploy over SSH (appleboy with key_path)
@@ -34,16 +38,12 @@ jobs:
           debug: true
           script: |
             set -euxo pipefail
-            echo "🔐 Login to GHCR"
+
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u defoult13 --password-stdin
 
-            echo "🧹 Stop old container if exists"
             docker rm -f catty-reminders || true
-
-            echo "⬇️ Pull latest image"
             docker pull ghcr.io/defoult13/catty-reminders-app:latest
-
-            echo "🚀 Run new container"
             docker run -d --name catty-reminders -p 8181:8181 --restart=always ghcr.io/defoult13/catty-reminders-app:latest
 
-            echo "✅ Deployment complete"
+            sleep 2
+            curl -sI http://127.0.0.1:8181/ || true
