@@ -1,4 +1,5 @@
 name: CD Deploy
+
 on:
   release:
     types: [published]
@@ -8,30 +9,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check B64 secret is present
+      - name: Check SSH_PRIVATE_KEY_B64
         run: |
           if [ -z "${{ secrets.SSH_PRIVATE_KEY_B64 }}" ]; then
             echo "❌ SSH_PRIVATE_KEY_B64 is empty or not visible to this job"; exit 1;
           fi
           echo "✅ SSH_PRIVATE_KEY_B64 length: $(echo '${{ secrets.SSH_PRIVATE_KEY_B64 }}' | wc -c) bytes"
 
-      - name: Decode key and test raw SSH
+      - name: Decode SSH key and test connection
         shell: bash
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
           chmod 600 key.pem
-
           head -n1 key.pem
+          echo "🔑 Testing SSH connection..."
+          ssh -i key.pem -p 2471 -o StrictHostKeyChecking=no defoult@course.prafdin.ru 'echo "✅ SSH OK from GitHub Actions"'
 
-          ssh -i key.pem -p 2471 -o StrictHostKeyChecking=no defoult@course.prafdin.ru 'echo "SSH OK from GHA"'
-
-      - name: Deploy over SSH (appleboy with key_path)
+      # Деплой на сервер через SSH
+      - name: Deploy via SSH (appleboy with key_path)
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: course.prafdin.ru
           username: defoult
           port: 2471
-          key_path: key.pem       
+          key_path: key.pem
           script_stop: true
           timeout: 60s
           command_timeout: 10m
@@ -39,11 +40,28 @@ jobs:
           script: |
             set -euxo pipefail
 
+            echo "🔐 Logging in to GHCR..."
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u defoult13 --password-stdin
 
+            echo "🛑 Stopping old systemd service (if any)..."
+            sudo systemctl stop catty-reminders.service 2>/dev/null || true
+            sudo systemctl disable catty-reminders.service 2>/dev/null || true
+
+            echo "🔪 Freeing port 8181 (if occupied)..."
+            sudo fuser -k 8181/tcp || true
+
+            echo "🧹 Removing old container (if exists)..."
             docker rm -f catty-reminders || true
+
+            echo "⬇️ Pulling latest Docker image..."
             docker pull ghcr.io/defoult13/catty-reminders-app:latest
+
+            echo "🚀 Starting new container..."
             docker run -d --name catty-reminders -p 8181:8181 --restart=always ghcr.io/defoult13/catty-reminders-app:latest
 
+            echo "🩺 Checking container health..."
             sleep 2
             curl -sI http://127.0.0.1:8181/ || true
+            docker ps
+
+            echo "✅ Deployment complete!"
