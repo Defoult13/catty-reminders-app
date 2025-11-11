@@ -1,0 +1,60 @@
+name: CD (compose over SSH)
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start ssh-agent and add key
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Set variables
+        run: |
+          OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "OWNER_LOWER=${OWNER_LOWER}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=ghcr.io/${OWNER_LOWER}/catty-reminders-app:latest" >> $GITHUB_ENV
+          echo "APP_DIR=/home/defoult/apps/catty-reminders-app" >> $GITHUB_ENV
+
+      - name: Ensure remote dir and copy compose
+        env:
+          SERVER_USER: defoult
+          SERVER_HOST: course.prafdin.ru
+          SERVER_PORT: 2471
+        run: |
+          ssh -o StrictHostKeyChecking=no -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "mkdir -p $APP_DIR"
+          scp -P $SERVER_PORT docker-compose.yml $SERVER_USER@$SERVER_HOST:$APP_DIR/docker-compose.yml
+
+      - name: Deploy with Docker Compose on server
+        env:
+          SERVER_USER: defoult
+          SERVER_HOST: course.prafdin.ru
+          SERVER_PORT: 2471
+          GHCR_USER: defoult13
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "
+            set -euxo pipefail
+            cd $APP_DIR
+
+            echo \"$GHCR_TOKEN\" | docker login ghcr.io -u \"$GHCR_USER\" --password-stdin
+
+            docker rm -f catty-reminders || true
+
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            docker compose ps
+            sleep 2
+            curl -sI http://127.0.0.1:8181/ || true
+          "
