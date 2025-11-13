@@ -12,8 +12,7 @@ services:
         condition: service_healthy
     environment:
       - APP_ENV=${APP_ENV:-production}
-
-      # совместимость: обе группы переменных для БД
+      
       - MYSQL_HOST=${MYSQL_HOST:-mysql}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
       - MYSQL_USER=${MYSQL_USER:-catty}
